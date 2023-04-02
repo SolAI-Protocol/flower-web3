@@ -147,6 +147,8 @@ def main() -> None:
         # Start Flower client
         client = CifarClient(trainset, testset, device)
 
+        # below will change to start_web3_client
+        # start_web3_client(client=client, contract_address="0x4ab3245...")
         fl.client.start_numpy_client(server_address="0.0.0.0:8080", client=client)
 
 

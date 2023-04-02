@@ -1,3 +1,13 @@
+# FLOWER-WEB3
+## Goal
+- Add Decentralized FL Scheme Compatible with Flower Framework
+
+## start_web3_client
+
+Add fl.client.start_web3_client instead of fl.client.start_client
+
+
+# Previous README
 # Advanced Flower Example (PyTorch)
 
 This example demonstrates an advanced federated learning setup using Flower with PyTorch. It differs from the quickstart example in the following ways:
