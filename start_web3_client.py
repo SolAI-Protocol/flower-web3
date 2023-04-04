@@ -7,8 +7,30 @@ from flwr.common.telemetry import event, EventType
 from flwr.client.message_handler.message_handler import handle
 from flwr.common.logger import log, INFO
 
-# work similar to grpc_connection
+"""
+Server Message
+- ReconnectIns
+- GetPropertiesIns
+- GetPropertiesIns.ConfigEntry
+- GetParametersIns
+- GetParametersIns.ConfigEntry
+- FitIns
+- FitIns.ConfigEntry
+- EvaluateIns
+- EvaluateIns.ConfigEntry
+"""
 
+"""
+Client Message
+- DisconnectRes
+- GetPropertiesRes
+- GetPropertiesRes.PropertiesEntry
+- GetParametersRes
+- FitRes
+- FitRes.MetricsEntry
+- EvaluateRes
+- EvaluateRes.MetricsEntry
+"""
 
 def web3_connection(contract_address
                     ) -> Iterator[Tuple[Callable[[], ServerMessage], Callable[[ClientMessage], None]]]:
@@ -32,7 +54,7 @@ def web3_connection(contract_address
 
 def start_web3_client(client, contract_address):
     """Start a Flower client using web3.py.
-    Everything is same with start_client except the connection part.
+    Everything is same with start_client except the connection, message part.
     grpc_connection -> web3_connection
     """
     event(EventType.START_CLIENT_ENTER)
