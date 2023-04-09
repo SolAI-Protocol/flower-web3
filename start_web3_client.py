@@ -2,13 +2,22 @@ import time
 import web3
 import json
 from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Union, cast
+import torch
 
 from flwr.proto.transport_pb2 import ClientMessage, ServerMessage
 from flwr.common.telemetry import event, EventType
 from flwr.client.message_handler.message_handler import handle
 from flwr.common.logger import log
+from flwr.client.client import (
+    Client,
+    maybe_call_evaluate,
+    maybe_call_fit,
+    maybe_call_get_parameters,
+    maybe_call_get_properties,
+)
 from logging import DEBUG, INFO
 import boto3
+import hashlib
 
 """
 Server Message
@@ -35,6 +44,72 @@ Client Message
 - EvaluateRes.MetricsEntry
 """
 
+def _fit(client: Client, fit_ins) -> ClientMessage:
+    # Perform fit
+    fit_res = maybe_call_fit(
+        client=client,
+        fit_ins=fit_ins,
+    )
+
+    return fit_res
+
+def _evaluate(client: Client, evaluate_ins) -> ClientMessage:
+    # Perform evaluation
+    evaluate_res = maybe_call_evaluate(
+        client=client,
+        evaluate_ins=evaluate_ins,
+    )
+
+    return evaluate_res
+
+def make_global_model(model_hashes):
+    # read the files from the local storage
+    models = []
+    for model_hash in model_hashes:
+        with open(f'./models/{model_hash}', 'rb') as f:
+            models.append(f.read())
+    
+    # average the models
+    global_model = sum(models) / len(models)
+
+    return global_model
+
+
+def handle_receive(client, msg, s3):
+    # deserialize the message
+    server_msg = ServerMessage()
+    server_msg.ParseFromString(msg)
+
+    field = server_msg.WhichOneof('msg')
+    if field == "fit_ins":
+        # read model hashes from the contract and download the model from S3
+        model_hashes = server_msg.fit_ins.model_hashes
+        for model_hash in model_hashes:
+            # specify the bucket name and object key
+            bucket_name = 'my-bucket'
+            object_key = model_hash
+
+            # specify the path to the file to download
+            file_path = f'./models/{model_hash}'
+
+            # check hash value
+
+
+            # download the file from S3
+            with open(file_path, 'wb') as f:
+                s3.download_fileobj(bucket_name, object_key, f)
+
+        # make the global model from aggregating the downloaded models
+        global_model = make_global_model(model_hashes)
+
+        # fit the model on client
+        return _fit(client, server_msg.fit_ins)
+    
+    elif field == "evaluate_ins":
+        # evaluate the model on client
+        return _evaluate(client, server_msg.evaluate_ins)
+
+
 def listen_for_event(contract, event_name):
     # create a filter to listen for the specified event
     event_filter = contract.events[event_name].createFilter(fromBlock='latest')
@@ -50,25 +125,38 @@ def listen_for_event(contract, event_name):
         time.sleep(60)
 
 
-def handle_send(w3, s3, contract, function_name, msg, sender_address, sender_private_key):
-    # hash the message
-    msg_hash = w3.keccak(text=msg).hex()
+def handle_send(w3, s3, contract, msg, sender_address, sender_private_key):
+    
+    if msg['type'] == 'FitRes':
+        # hash the message params which is dictionary
 
-    # specify the bucket name and object key
-    bucket_name = 'my-bucket'
-    object_key = 'my-object'
+        # Concatenate all tensors in the state_dict
+        concatenated_tensor = torch.cat([param.view(-1) for param in model['params'].values()])
 
-    # specify the path to the file to upload
-    file_path = '/path/to/my/file.txt'
+        # Convert the concatenated tensor to bytes and calculate the hash
+        tensor_bytes = concatenated_tensor.numpy().tobytes()
+        model_hash = hashlib.sha256(tensor_bytes).hexdigest()
 
-    # upload the file to S3
-    with open(file_path, 'rb') as f:
-        s3.upload_fileobj(f, bucket_name, object_key)
+        # save the model to the local storage
+        with open(f'./models/{model_hash}.bin', 'wb') as f:
+            f.write(msg['params'])
 
-    args = [msg_hash]
+        # specify the bucket name and object key
+        bucket_name = 'my-bucket'
+        object_key = 'my-object'
 
-    # get the function object from the contract ABI
-    function = getattr(contract.functions, function_name)(*args)
+        # upload the file to S3
+        with open(f'./models/{model_hash}.bin', 'rb') as f:
+            s3.upload_fileobj(f, bucket_name, object_key)
+
+        args = [model_hash]
+
+        # get the function object from the contract ABI
+        function = getattr(contract.functions, 'FitRes')(*args)
+
+    elif msg['type'] == 'EvaluateRes':
+        args = [msg['params']]
+        function = getattr(contract.functions, 'EvaluateRes')(*args)
 
     # build the transaction dictionary
     transaction = {
