@@ -77,13 +77,11 @@ def make_global_model(model_hashes):
 
 def handle_receive(client, msg, s3):
     # deserialize the message
-    server_msg = ServerMessage()
-    server_msg.ParseFromString(msg)
 
-    field = server_msg.WhichOneof('msg')
+    field = msg['field']
     if field == "fit_ins":
         # read model hashes from the contract and download the model from S3
-        model_hashes = server_msg.fit_ins.model_hashes
+        model_hashes = msg['model_hashes']
         for model_hash in model_hashes:
             # specify the bucket name and object key
             bucket_name = 'my-bucket'
@@ -94,7 +92,6 @@ def handle_receive(client, msg, s3):
 
             # check hash value
 
-
             # download the file from S3
             with open(file_path, 'wb') as f:
                 s3.download_fileobj(bucket_name, object_key, f)
@@ -103,11 +100,11 @@ def handle_receive(client, msg, s3):
         global_model = make_global_model(model_hashes)
 
         # fit the model on client
-        return _fit(client, server_msg.fit_ins)
+        return _fit(client, msg)
     
     elif field == "evaluate_ins":
         # evaluate the model on client
-        return _evaluate(client, server_msg.evaluate_ins)
+        return _evaluate(client, msg)
 
 
 def listen_for_event(contract, event_name):
